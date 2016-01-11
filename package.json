@@ -1,0 +1,30 @@
+{
+  "name": "butter-provider-vodo",
+  "version": "0.0.1",
+  "description": "A Butter provider for VODO.net",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/butterproject/butter-provider-vodo.git"
+  },
+  "keywords": [
+    "vodo",
+    "butter",
+    "streaming"
+  ],
+  "author": "Niv Sardi",
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/butterproject/butter-provider-vodo/issues"
+  },
+  "homepage": "https://github.com/butterproject/butter-provider-vodo#readme",
+  "dependencies": {
+    "defer-request": "0.0.2",
+    "lodash": "^3.10.1",
+    "moment": "^2.11.1",
+    "q": "^1.4.1"
+  }
+}
