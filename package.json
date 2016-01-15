@@ -1,26 +1,26 @@
 {
-  "name": "butter-provider-vodo",
+  "name": "butter-provider-tmdb",
   "version": "0.0.1",
-  "description": "A Butter provider for VODO.net",
+  "description": "A Butter provider for TheMovieDB.com",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/butterproject/butter-provider-vodo.git"
+    "url": "git+https://github.com/butterproject/butter-provider-tmdb.git"
   },
   "keywords": [
-    "vodo",
+    "tmdb",
     "butter",
     "streaming"
   ],
   "author": "Niv Sardi",
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/butterproject/butter-provider-vodo/issues"
+    "url": "https://github.com/butterproject/butter-provider-tmdb/issues"
   },
-  "homepage": "https://github.com/butterproject/butter-provider-vodo#readme",
+  "homepage": "https://github.com/butterproject/butter-provider-tmdb#readme",
   "dependencies": {
     "defer-request": "0.0.2",
     "lodash": "^3.10.1",

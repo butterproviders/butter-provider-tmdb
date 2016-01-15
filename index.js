@@ -1,213 +1,244 @@
 'use strict';
-
-var GenericProvider = require('butter-provider');
-var querystring = require('querystring');
 var Q = require('q');
-var request = require('request');
-var inherits = require('util').inherits;
 var _ = require('lodash');
-var Datastore = require('nedb');
+var moment = require('moment');
+var deferRequest = require('defer-request');
 
-var apiUrl = 'http://butter.vodo.net/popcorn',
-    db = new Datastore();
-
-function Vodo() {
-    if (!(this instanceof Vodo)) {
-        return new Vodo();
+var TheMovieDB = function (args) {
+    if (!args || !args.path) {
+        return console.error ('The TMDB provider requires a path argument');
     }
+    this.config.tabName += ' — args.path';
+    this.URL = baseURL + args.path
+};
 
-    GenericProvider.call(this);
-}
-inherits(Vodo, GenericProvider);
+var baseURL = 'http://localhost:8080/';
+TheMovieDB.prototype.constructor = TheMovieDB;
 
-Vodo.prototype.config = {
-    name: 'vodo',
+TheMovieDB.prototype.config = {
+    name: 'tmdb',
     uniqueId: 'imdb_id',
-    tabName: 'Vodo',
+    tabName: 'TheMovieDB.org',
     type: 'movie',
     /* should be removed */
     //subtitle: 'ysubs',
     metadata: 'trakttv:movie-metadata'
 };
 
-function formatForButter(items) {
-    var results = {};
-    var movieFetch = {};
-    movieFetch.results = [];
-    movieFetch.hasMore = (Number(items.length) > 1 ? true : false);
-    _.each(items, function (movie) {
-        if (movie.Quality === '3D') {
-            return;
-        }
-        var imdb = movie.ImdbCode;
-
-        // Calc torrent health
-        var seeds = 0; //XXX movie.TorrentSeeds;
-        var peers = 0; //XXX movie.TorrentPeers;
-
-        var torrents = {};
-        torrents[movie.Quality] = {
-            url: movie.TorrentUrl,
-            size: movie.SizeByte,
-            filesize: movie.Size,
-            seed: seeds,
-            peer: peers
-        };
-
-        var ptItem = results[imdb];
-        if (!ptItem) {
-            ptItem = {
-                imdb_id: imdb,
-                title: movie.MovieTitleClean.replace(/\([^)]*\)|1080p|DIRECTORS CUT|EXTENDED|UNRATED|3D|[()]/g, ''),
-                year: movie.MovieYear,
-                genre: [movie.Genre],
-                rating: movie.MovieRating,
-                image: movie.CoverImage,
-                cover: movie.CoverImage,
-                backdrop: movie.CoverImage,
-                torrents: torrents,
-                subtitle: {}, // TODO
-                trailer: false,
-                synopsis: movie.Synopsis || 'No synopsis available.',
-                type: 'movie'
-            };
-
-            movieFetch.results.push(ptItem);
-        } else {
-            _.extend(ptItem.torrents, torrents);
-        }
-
-        results[imdb] = ptItem;
-    });
-
-    return movieFetch.results;
-}
-
-Vodo.prototype.extractIds = function (items) {
-    return _.pluck(items.results, 'imdb_id');
-};
-
-Vodo.prototype.updateAPI = function () {
-    var self = this;
-    var defer = Q.defer();
-    console.info('Request to Vodo', apiUrl);
-    request({
-        uri: apiUrl,
-        strictSSL: false,
-        json: true,
-        timeout: 10000
-    },
-            function (err, res, data) {
-                /*
-                  data = _.map (helpers.formatForButter(data), function (item) {
-                  item.rating = item.rating.percentage * Math.log(item.rating.votes);
-                  return item;
-                  });
-                */
-                db.insert(formatForButter(data.downloads), function (err, newDocs) {
-                    if (err) {
-                        console.error('Vodo.updateAPI(): Error inserting', err);
-                    }
-
-                    db.find({}).limit(2).exec(function (err, docs) {
-                        //console.debug('FIND ---->', err, docs);
-                    });
-                    defer.resolve(newDocs);
-                });
-            });
-
-    return defer.promise;
-};
-
-Vodo.prototype.fetch = function (filters) {
-    var self = this;
-    if (!self.fetchPromise) {
-        self.fetchPromise = this.updateAPI();
+function exctractYear(movie) {
+    var metadata = movie.metadata;
+    if (metadata.hasOwnProperty('year')) {
+        return metadata.year[0];
+    } else if (metadata.hasOwnProperty('date')) {
+        return metadata.date[0];
+    } else if (metadata.hasOwnProperty('addeddate')) {
+        return metadata.addeddate[0];
     }
 
-    var defer = Q.defer();
-    var params = {
-        sort: 'rating',
-        limit: 50
+    return 'UNKNOWN';
+}
+
+function extractRating(movie) {
+    if (movie.hasOwnProperty('reviews')) {
+        return movie.reviews.info.avg_rating;
+    }
+
+    return 0;
+}
+
+function formatOMDbforButter(movie) {
+    var id = movie.imdbID;
+    var runtime = movie.Runtime;
+    var year = movie.Year;
+    var rating = movie.imdbRating;
+
+    movie.Quality = '480p'; // XXX
+
+    return {
+        type: 'movie',
+        aid: movie.tmdb.identifier,
+        imdb: id,
+        imdb_id: id,
+        title: movie.Title,
+        genre: [movie.Genre],
+        year: year,
+        rating: rating,
+        runtime: runtime,
+        image: undefined,
+        cover: undefined,
+        images: {
+            poster: undefined
+        },
+        synopsis: movie.Plot,
+        subtitle: {} // TODO
     };
-    var findOpts = {};
+}
+
+function formatDetails(movie, old) {
+    var id = movie.metadata.identifier[0];
+    /* HACK (xaiki): tmdb.org, get your data straight !#$!
+     *
+     * We need all this because data doesn't come reliably tagged =/
+     */
+    var mp4s = _.filter(movie.files, function (file, k) {
+        return k.endsWith('.mp4');
+    });
+
+    var url = 'http://' + movie.server + movie.dir;
+    var turl = '/' + id + '_tmdb.torrent';
+    var torrentInfo = movie.files[turl];
+
+    // Calc torrent health
+    var seeds = 0; //XXX movie.TorrentSeeds;
+    var peers = 0; //XXX movie.TorrentPeers;
+    movie.Quality = '480p'; // XXX
+
+    var torrents = {};
+    torrents[movie.Quality] = {
+        url: url + turl,
+        size: torrentInfo.size,
+        seed: seeds,
+        peer: peers
+    };
+
+    old.torrents = torrents;
+    old.health = false;
+
+    return old;
+}
+
+function formatTheMovieDBForButter(movie) {
+    return {
+        type: 'movie',
+        imdb: movie.id,
+        title: movie.title,
+        year: 0,
+        rating: movie.popularity,
+        runtime: 0,
+        image: movie.backdrop_path,
+        cover: movie.poster_path,
+        images: {
+            poster: movie.poster_path,
+        },
+        synopsis: movie.overview,
+        subtitle: {}
+    }
+}
+
+var queryTorrents = function (URL, filters) {
+    var self = this;
+    var sort = 'downloads';
+
+    console.log ('this url', URL)
+    var params = {
+        rows: '50',
+    };
 
     if (filters.keywords) {
-        findOpts = {
-            title: new RegExp(filters.keywords.replace(/\s/g, '\\s+'))
-        };
+        params.keywords = filters.keywords.replace(/\s/g, '% ');
     }
 
     if (filters.genre) {
         params.genre = filters.genre;
     }
 
+    var order = 'desc';
     if (filters.order) {
-        params.order = filters.order;
+        if (filters.order === 1) {
+            order = 'asc';
+        }
     }
 
     if (filters.sorter && filters.sorter !== 'popularity') {
-        params.sort = filters.sorter;
+        sort = filters.sorter;
     }
 
-    var sortOpts = {};
-    sortOpts[params.sort] = params.order;
+    sort += '+' + order;
 
-    self.fetchPromise.then(function () {
-        db.find(findOpts)
-            .sort(sortOpts)
-            .skip((filters.page - 1) * params.limit)
-            .limit(Number(params.limit))
-            .exec(function (err, docs) {
-                docs.forEach(function (entry) {
-                    entry.type = 'movie';
-                });
+    if (filters.page) {
+        params.page = filters.page;
+    }
 
-                return defer.resolve({
-                    results: docs,
-                    hasMore: docs.length ? true : false
-                });
+    console.error ('about to request', URL);
+    return deferRequest(URL)
+        .then(function (data) {
+            return data.results;
+        })
+        .catch(function (err) {
+            console.error('TMDB.org error:', err);
+        });
+};
+
+var queryDetails = function (id, movie) {
+    id = movie.aid || id;
+    var url = baseURL + 'details/' + id + '?output=json';
+    console.info('Request to TMDB.org API', url);
+    return deferRequest(url).then(function (data) {
+        return data;
+    })
+        .catch(function (err) {
+            console.error('TheMovieDB.org error', err);
+        });
+};
+
+var queryOMDb = function (item) {
+    var params = {
+        t: item.title.replace(/\s+\([0-9]+\)/, ''),
+        r: 'json',
+        tomatoes: true
+    };
+
+    var url = 'http://www.omdbapi.com/';
+    return deferRequest(url, params).then(function (data) {
+        if (data.Error) {
+            throw new Error(data);
+        }
+        data.tmdb = item;
+        return data;
+    });
+};
+
+var queryOMDbBulk = function (items) {
+    console.error('before details', items);
+    var deferred = Q.defer();
+    var promises = _.map(items, function (item) {
+        return queryOMDb(item)
+            .then(formatOMDbforButter)
+            .catch(function (err) {
+                console.error('no data on OMDB, going back to tmdb', err, item);
+                return formatTheMovieDBForButter(item);
+
+                return queryDetails(item.identifier, item)
+                    .then();
             });
     });
 
-    return defer.promise;
-};
-
-Vodo.prototype.random = function () {
-    var defer = Q.defer();
-
-    function get(index) {
-        var options = {
-            uri: apiUrl + Math.round((new Date()).valueOf() / 1000),
-            json: true,
-            timeout: 10000
-        };
-        var req = _.extend(true, {}, apiUrl[index], options);
-        request(req, function (err, res, data) {
-            if (err || res.statusCode >= 400 || (data && !data.data)) {
-                console.error('Vodo API endpoint \'%s\' failed.', apiUrl);
-                if (index + 1 >= apiUrl.length) {
-                    return defer.reject(err || 'Status Code is above 400');
-                } else {
-                    get(index + 1);
-                }
-                return;
-            } else if (!data || data.status === 'error') {
-                err = data ? data.status_message : 'No data returned';
-                return defer.reject(err);
-            } else {
-                return defer.resolve(Common.sanitize(data.data));
-            }
+    Q.all(promises).done(function (data) {
+        console.error('queryOMDbbulk', data);
+        deferred.resolve({
+            hasMore: (data.length < 50),
+            results: data
         });
-    }
-    get(0);
+    });
 
-    return defer.promise;
+    return deferred.promise;
 };
 
-Vodo.prototype.detail = function (torrent_id, old_data) {
-    return Q(old_data);
+TheMovieDB.prototype.extractIds = function (items) {
+    return _.pluck(items.results, 'imdb');
 };
 
+TheMovieDB.prototype.fetch = function (filters) {
+    console.log ('fetch from tmdb', this.URL)
+    return queryTorrents(this.URL, filters)
+        .then(queryOMDbBulk);
+};
 
-module.exports = Vodo
+TheMovieDB.prototype.detail = function (torrent_id, old_data) {
+    return queryDetails(torrent_id, old_data)
+        .then(function (data) {
+            return formatDetails(data, old_data);
+        });
+};
+
+mosdule.exports = TheMovieDB
