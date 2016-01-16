@@ -1,6 +1,6 @@
 {
   "name": "butter-provider-tmdb",
-  "version": "0.1.0"
+  "version": "0.1.0",
   "description": "A Butter provider for TheMovieDB.com",
   "main": "index.js",
   "scripts": {
