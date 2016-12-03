@@ -64,11 +64,8 @@ function formatOMDbforButter(movie) {
         year: year,
         rating: rating,
         runtime: runtime,
-        image: undefined,
-        cover: undefined,
-        images: {
-            poster: undefined
-        },
+        poster: null,
+        backdrop: null,
         synopsis: movie.Plot,
         subtitle: {} // TODO
     };
@@ -115,11 +112,8 @@ function formatTheMovieDBForButter(movie) {
         year: 0,
         rating: movie.popularity,
         runtime: 0,
-        image: movie.backdrop_path,
-        cover: movie.poster_path,
-        images: {
-            poster: movie.poster_path,
-        },
+        backdrop: movie.backdrop_path,
+        poster: movie.poster_path,
         synopsis: movie.overview,
         subtitle: {}
     }
